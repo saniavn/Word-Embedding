@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>How AI Thinks: Word Embeddings</title>
+    <script src="https://cdn.plot.ly/plotly-2.12.1.min.js"></script>
+    <style>
+        body {
+            font-family: 'Comic Sans MS', cursive, sans-serif;
+            background-color: #d1f9fa;
+            background-image: url('{{ url_for('static', filename='images/Nov141111.jpg') }}');
+            background-size: cover;
+            color: black;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            margin: 0;
+        }
+        h1.page-title {
+            text-align: center;
+            font-size: 28px;
+            margin: 0 0 15px 0;
+            color: black;
+            width: 100%;
+        }
+        .container {
+            display: grid;
+            grid-template-columns: 1.5fr 1fr;
+            gap: 20px;
+            width: 95%;
+            max-width: 1400px;
+            height: 85vh;
+        }
+        .left-column, .right-column {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow-y: auto;
+        }
+        .tool-section {
+            background-color: #ffd685;
+            border: 2px solid white;
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            text-align: center;
+        }
+        .tool-section h3 {
+            margin-top: 0;
+            font-size: 20px;
+            color: #333;
+        }
+        .tool-section p {
+            margin-top: 0;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+        .controls-row {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        #embeddingChartBox {
+            width: 100%;
+            height: 450px;
+            background: white;
+            border-radius: 8px;
+        }
+        #logoutContainer {
+            position: absolute;
+            top: 10px;
+            right: 20px;
+        }
+
+        #logoutButton {
+            padding: 10px;
+            font-size: 14px;
+            font-weight: bold;
+            background-color: #FFA500;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        #logoutButton:hover {
+            background-color: #cc0000;
+        }
+
+        #responseDisplay, #tokenDisplay {
+            width: 100%;
+            max-width: 700px;
+        }
+        .tool-section:nth-of-type(1) {
+    margin-bottom: 50px;}
+        .analogy-inputs input { width: 80px; font-size: 16px; text-align: center; }
+        #analogyResult { font-size: 1.5em; color: #d62728; font-weight: bold; min-width: 80px; }
+        #quizQuestion { font-size: 1.2em; margin-bottom: 15px; font-weight: bold; }
+        #quizOptionsContainer { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+        .quiz-option-btn { padding: 10px; font-size: 16px; cursor: pointer; border: 2px solid #007BFF; background-color: white; color: #007BFF; border-radius: 8px; transition: all 0.2s; }
+        .quiz-option-btn:hover:not(:disabled) { background-color: #e0f7ff; transform: translateY(-2px); }
+        .quiz-option-btn.correct { background-color: #2ca02c; border-color: #2ca02c; color: white; }
+        .quiz-option-btn.incorrect { background-color: #d62728; border-color: #d62728; color: white; }
+        .quiz-option-btn:disabled { cursor: not-allowed; opacity: 0.7; }
+        #quizFeedback { margin-top: 10px; font-weight: bold; min-height: 24px; font-size: 1.1em; }
+        input[type="text"], select, button { padding: 8px 12px; font-size: 16px; margin: 5px; border: 1px solid #ccc; border-radius: 4px; font-family: 'Comic Sans MS', cursive, sans-serif; }
+        button { background-color: #007BFF; color: white; border: none; cursor: pointer; transition: background-color 0.2s; }
+        button:hover { background-color: #0056b3; }
+        #backButton { position: absolute; bottom: 20px; left: 20px; background-color: #6c757d; }
+        #backButton:hover { background-color: #5a6268; }
+        .view-toggle { display: flex; border: 1px solid #007BFF; border-radius: 6px; overflow: hidden; }
+        .toggle-btn { margin: 0; border-radius: 0; background-color: white; color: #007BFF; border: none; }
+        .toggle-btn.active { background-color: #007BFF; color: white; }
+    </style>
+</head>
+<body>
+    <h1 class="page-title">
+        Explore How
+        <img src="{{ url_for('static', filename='images/Gemini2.png') }}" alt="AI" style="vertical-align: middle; width: 60px; height: auto; margin: 0 4px;">
+        Groups Words
+    </h1>
+    <div id="logoutContainer">
+            <button id="logoutButton" onclick="logout()"> Log Out</button>
+        </div>
+    <div class="container">
+        <div class="left-column">
+            <div class="tool-section">
+                <h3>Discover Word Relationships</h3>
+                <p>Enter a sentence to see how words relate in space. Words with similar meanings will be closer together.</p>
+                <div class="controls-row">
+                    <select id="embeddingModelSelect">
+                        <option value="word2vec-google-news-300">Word2Vec (Fastest)</option>
+                        <option value="gpt2">GPT-2</option>
+                        <option value="gpt2-medium">GPT-2 Medium</option>
+                    </select>
+                    <input type="text" id="embeddingWordInput" value="king queen man woman">
+                    <button onclick="fetchEmbedding()">Map Words</button>
+                    <div class="view-toggle">
+                        <button id="btn3D" class="toggle-btn active" onclick="setViewMode(3)">3D</button>
+                        <!-- <button id="btn2D" class="toggle-btn" onclick="setViewMode(2)">2D</button> -->
+                    </div>
+                </div>
+                <div id="embeddingChartBox">
+                    <p style="text-align: center; padding-top: 40px;">Click "Map Words" to see the map!</p>
+                </div>
+            </div>
+        </div>
+        <div class="right-column">
+             <div class="tool-section">
+                <h3>Build Your Own Analogy!</h3>
+                <p>If king - man + woman = queen, what else can you find?</p>
+                <div class="controls-row analogy-inputs">
+                    <input type="text" id="analogyA" value="king"><span>-</span>
+                    <input type="text" id="analogyB" value="man"><span>+</span>
+                    <input type="text" id="analogyC" value="woman">
+                    <button onclick="calculateAnalogy()">=</button>
+                    <strong id="analogyResult">?</strong>
+                </div>
+            </div>
+            <div class="tool-section">
+                <h3>Analogy Quiz: Solve the Puzzle!</h3>
+                <div id="quizQuestion" class="controls-row"></div>
+                <div id="quizOptionsContainer"></div>
+                <div id="quizFeedback"></div>
+                <button onclick="nextQuizQuestion()">Next Question</button>
+            </div>
+        </div>
+    </div>
+    <!-- <button id="backButton" onclick="goBack()">← Back to Prediction</button> -->
+
+    <script>
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const userId = urlParams.get('user_id');
+        if (userId) localStorage.setItem("user_id", userId);
+        let currentViewMode = 3;
+        function goBack() { window.location.href = `/home?user_id=${localStorage.getItem("user_id") || ''}`; }
+        function setViewMode(dimensions) {
+            currentViewMode = dimensions;
+            document.getElementById('btn3D').classList.toggle('active', dimensions === 3);
+            document.getElementById('btn2D').classList.toggle('active', dimensions === 2);
+            fetchEmbedding();
+        }
+
+        function logout() {
+                  const userId = localStorage.getItem("user_id");
+                  if (!userId) {
+                      return window.location.href = "/";
+                  }
+
+                  // 1) trigger file download
+                  const link = document.createElement("a");
+                  link.href       = `/download_user_data/${userId}`;
+                  link.download = `${userId}.json`;
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+
+                  // 2) clear session and go home
+                  localStorage.removeItem("user_id");
+                  window.location.href = "/";
+              }
+
+        // It now accepts an optional 'analogyWords' object to draw arrows
+        function drawPlot(points, titleText, analogyWords = null) {
+            const chartBox = document.getElementById("embeddingChartBox");
+            if (!Array.isArray(points) || points.length === 0) {
+                chartBox.innerHTML = `<p style="text-align: center; color: red;">Error: No points to plot.</p>`;
+                return;
+            }
+
+            let trace, layout;
+
+            // Base layout annotations are empty
+            const annotations = [];
+
+            // If this is a 2D plot AND we have analogy data, create arrows
+            if (currentViewMode === 2 && analogyWords) {
+                // Find the coordinates for each word in the analogy
+                const wordCoords = {};
+                points.forEach(p => {
+                    wordCoords[p.word.toLowerCase()] = { x: p.x, y: p.y };
+                });
+
+                const posA = wordCoords[analogyWords.a.toLowerCase()];
+                const posB = wordCoords[analogyWords.b.toLowerCase()];
+                const posC = wordCoords[analogyWords.c.toLowerCase()];
+                const posD = wordCoords[analogyWords.d.toLowerCase()];
+
+                // Ensure all points exist before trying to draw
+                if (posA && posB && posC && posD) {
+                    const arrowStyle = { showarrow: true, arrowhead: 2, axref: 'x', ayref: 'y', arrowwidth: 2, arrowcolor: '#d62728' };
+
+                    // Arrow 1: From B to A (e.g., man -> king)
+                    annotations.push({ ...arrowStyle, ax: posB.x, ay: posB.y, x: posA.x, y: posA.y });
+
+                    // Arrow 2: From C to D (e.g., woman -> queen)
+                    annotations.push({ ...arrowStyle, ax: posC.x, ay: posC.y, x: posD.x, y: posD.y });
+                }
+            }
+
+            if (currentViewMode === 2) {
+                trace = {
+                    x: points.map(p => p.x), y: points.map(p => p.y),
+                    mode: "markers+text", type: "scatter", text: points.map(p => p.word),
+                    textposition: "top center", marker: { size: 10 }, textfont: { size: 12 }
+                };
+                layout = {
+                    margin: { l: 40, r: 20, b: 40, t: 40 },
+                    title: { text: titleText, font: { size: 14 } },
+                    xaxis: { title: 'Dimension 1' }, yaxis: { title: 'Dimension 2' },
+                    annotations: annotations // Add arrows to the layout
+                };
+            } else { // 3D Plot
+                trace = {
+                    x: points.map(p => p.x), y: points.map(p => p.y), z: points.map(p => p.z),
+                    mode: "markers+text", type: "scatter3d", text: points.map(p => p.word),
+                    textposition: "top center", marker: { size: 6, opacity: 0.8 }, textfont: { size: 12 }
+                };
+                layout = {
+                    margin: { l: 0, r: 0, b: 0, t: 40 },
+                    title: { text: titleText, font: { size: 14 } },
+                    scene: { camera: { eye: { x: 1.5, y: 1.5, z: 1.5 } }, aspectmode: 'cube' },
+                };
+            }
+            Plotly.newPlot("embeddingChartBox", [trace], layout);
+        }
+
+
+        async function fetchEmbedding() {
+            const text = document.getElementById("embeddingWordInput").value.trim();
+            const model = document.getElementById("embeddingModelSelect").value;
+            const currentUserId = localStorage.getItem("user_id");
+            if (!text || !currentUserId) return;
+            document.getElementById("embeddingChartBox").innerHTML = '<p></p>';
+            const response = await fetch("/embedding", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text, model, user_id: currentUserId, dimensions: currentViewMode })
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                document.getElementById("embeddingChartBox").innerHTML = `<p style="color: red;">Error: ${data.error}</p>`;
+            } else {
+                drawPlot(data.points, `Word Relationships for "${text}"`);
+            }
+        }
+
+
+        // Now passes the words to drawPlot to create the arrows
+        async function calculateAnalogy() {
+            const wordA = document.getElementById("analogyA").value.trim();
+            const wordB = document.getElementById("analogyB").value.trim();
+            const wordC = document.getElementById("analogyC").value.trim();
+            const resultDisplay = document.getElementById("analogyResult");
+            const currentUserId = localStorage.getItem("user_id");
+            if (!wordA || !wordB || !wordC || !currentUserId) return;
+            resultDisplay.textContent = "🤔";
+            const response = await fetch("/calculate_analogy", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ model: document.getElementById("embeddingModelSelect").value, word_a: wordA, word_b: wordB, word_c: wordC, user_id: currentUserId, dimensions: currentViewMode })
+            });
+            const data = await response.json();
+            if (!response.ok || data.error) {
+                resultDisplay.textContent = "❌";
+            } else {
+                resultDisplay.textContent = data.result_word;
+                const title = `${wordA} - ${wordB} + ${wordC} ≈ ${data.result_word}`;
+                // Pass the words to the plot function
+                const analogyWords = { a: wordA, b: wordB, c: wordC, d: data.result_word };
+                drawPlot(data.points, title, analogyWords);
+            }
+        }
+
+    //quiz
+        const analogyQuizQuestions = [
+            { a: 'king', b: 'man', c: 'woman', answer: 'queen', options: ['queen', 'girl', 'prince', 'ruler'] },
+            { a: 'Summer', b: 'heat', c: 'snow', answer: 'winter', options: ['winter', 'ice', 'cold', 'spring'] },
+            { a: 'walking', b: 'walked', c: 'swimming', answer: 'swim', options: ['swam', 'water', 'swim', 'dived'] }
+        ];
+        let currentQuestionIndex = 0;
+
+        function loadQuizQuestion() {
+            const question = analogyQuizQuestions[currentQuestionIndex];
+            const questionContainer = document.getElementById('quizQuestion');
+            const optionsContainer = document.getElementById('quizOptionsContainer');
+            questionContainer.innerHTML = `<strong>${question.a}</strong><span>&nbsp;-&nbsp;</span><strong>${question.b}</strong><span>&nbsp;+&nbsp;</span><strong>${question.c}</strong><span>&nbsp;=&nbsp;</span><strong>?</strong>`;
+            optionsContainer.innerHTML = '';
+            document.getElementById('quizFeedback').innerHTML = '';
+            const shuffledOptions = [...question.options];
+            (arr => { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } })(shuffledOptions);
+            shuffledOptions.forEach(option => {
+                const button = document.createElement('button');
+                button.textContent = option;
+                button.className = 'quiz-option-btn';
+                button.onclick = () => checkQuizAnswer(option);
+                optionsContainer.appendChild(button);
+            });
+        }
+
+
+        // It now also passes the words to drawPlot to create arrows
+        async function checkQuizAnswer(selectedOption) {
+            const feedbackEl = document.getElementById('quizFeedback');
+            feedbackEl.textContent = 'Checking...';
+            const question = analogyQuizQuestions[currentQuestionIndex];
+            const correctAnswer = question.answer;
+
+            // Visually update buttons
+            const optionButtons = document.querySelectorAll('.quiz-option-btn');
+            optionButtons.forEach(btn => {
+                btn.disabled = true;
+                if (btn.textContent.toLowerCase() === correctAnswer.toLowerCase()) { btn.classList.add('correct'); }
+                else if (btn.textContent.toLowerCase() === selectedOption.toLowerCase()) { btn.classList.add('incorrect'); }
+            });
+
+            // Update feedback text
+            if (selectedOption.toLowerCase() === correctAnswer.toLowerCase()) {
+                feedbackEl.textContent = 'Correct!';
+                feedbackEl.style.color = '#2ca02c';
+            } else {
+                feedbackEl.textContent = `Not quite! The correct answer is "${correctAnswer}".`;
+                feedbackEl.style.color = '#d62728';
+            }
+
+            // Fetch analogy data to draw the plot with arrows
+            const currentUserId = localStorage.getItem("user_id");
+            const response = await fetch("/calculate_analogy", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ model: document.getElementById("embeddingModelSelect").value, word_a: question.a, word_b: question.b, word_c: question.c, user_id: currentUserId, dimensions: currentViewMode })
+            });
+            const data = await response.json();
+            if (response.ok) {
+                const title = `${question.a} - ${question.b} + ${question.c} ≈ ${data.result_word}`;
+                const analogyWords = { a: question.a, b: question.b, c: question.c, d: data.result_word };
+                drawPlot(data.points, title, analogyWords);
+            }
+        }
+
+        function nextQuizQuestion() {
+            currentQuestionIndex = (currentQuestionIndex + 1) % analogyQuizQuestions.length;
+            loadQuizQuestion();
+            const question = analogyQuizQuestions[currentQuestionIndex];
+            document.getElementById('embeddingWordInput').value = `${question.a} ${question.b} ${question.c} ${question.answer}`;
+            fetchEmbedding();
+        }
+
+        window.onload = () => { fetchEmbedding(); loadQuizQuestion(); };
+    </script>
+</body>
+</html>
