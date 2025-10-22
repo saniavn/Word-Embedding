@@ -115,7 +115,7 @@ def login():
         first_name = request.form["first_name"].strip().capitalize()
         last_initial = request.form["last_initial"].strip().upper()
         grade = request.form["grade"].strip()
-        q1= request.form.get("q2", "").strip()
+        q2= request.form.get("q2", "").strip()
         user_id = str(uuid.uuid4())
         user_data = {
             "user_id": user_id, "first_name": first_name, "last_initial": last_initial,
