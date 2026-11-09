@@ -1,0 +1,10 @@
+# Student data: never commit
+user_data/*
+!user_data/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store

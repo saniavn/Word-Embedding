@@ -4,16 +4,19 @@
     <!-- <meta charset="UTF-8"> -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>Login - AI Learning</title>
+    <title>Word Embedding Lab - Login</title>
     <style>
         /* General Page Styles */
         body {
             font-family: 'Comic Sans MS', cursive, sans-serif;
             background-color: #d1f9fa;
             display: flex;
+            flex-direction: column;
             justify-content: center;
             align-items: center;
-            height: 100vh;
+            min-height: 100vh;
+            box-sizing: border-box;
+            padding: 20px 0;
             text-align: center;
             margin: 0;
         }
@@ -164,28 +167,33 @@
     </style>
 </head>
 <body>
-<img src="{{ url_for('static', filename='images/Gemini01.png') }}" alt="Gemini Logo" class="page-title">
+<!-- <img src="{{ url_for('static', filename='images/Gemini01.png') }}" alt="Gemini Logo" class="page-title"> -->  <!-- image file missing from static/images -->
+
+<img src="{{ url_for('static', filename='images/logo.png') }}" alt="Word Embedding Lab" style="display: block; width: 90%; max-width: 380px; height: auto; margin: 0 auto 15px;">
 
 <div class="container">
 
 
-    <h2>Welcome to Think Like <img src="{{ url_for('static', filename='images/ChatGPT1.png') }}" alt="AI" style="vertical-align: middle; width: 50px; height: auto;">!</h2>
+    <!-- <h2>Welcome to Word Embedding Lab!</h2> -->
 
 
     <div class="fun-fact">
-      <p>Think Like AI helps you learn why chatbots like ChatGPT predict certain words.</p>
-      <p>Fun Fact: Did you know? The first chatbot, <b>ELIZA</b>, was created in <b>1966</b>. </p>
+      <p>Explore how AI represents words as numbers and discovers relationships between them.</p>
+      <p>Fun Fact: Did you know that AI can represent a single word using hundreds of numbers? Word Embedding Lab lets you explore these representations in 3D!</p>
 
   </div>
 
 
 
-    <p>Enter your infromation and explore!</p>
+    <p>Enter your information and explore!</p>
 
     <form method="POST">
         <div class="form-group">
+            <!--
             <input type="text" name="first_name" placeholder="First Name (e.g. John)" required autocomplete="off">
             <input type="text" name="last_initial" placeholder="Last Initial (e.g., S)" maxlength="1" required autocomplete="off">
+            -->
+            <input type="text" name="student_id" placeholder="Student ID" required autocomplete="off">
             <select name="grade" required>
               <option value="" selected disabled>Select Grade</option>
                 <option value="6">6th</option>
@@ -219,12 +227,13 @@
 
 document.getElementById('lets-play-btn').addEventListener('click', function () {
     const form = document.querySelector('form');
-    const firstName = form.querySelector('[name="first_name"]').value.trim();
-    const lastInitial = form.querySelector('[name="last_initial"]').value.trim();
+    // const firstName = form.querySelector('[name="first_name"]').value.trim();
+    // const lastInitial = form.querySelector('[name="last_initial"]').value.trim();
+    const studentId = form.querySelector('[name="student_id"]').value.trim();
     const grade = form.querySelector('[name="grade"]').value;
 
-    if (!firstName || !lastInitial || !grade) {
-        alert("Please fill out your First Name, Last Initial, and Grade before continuing.");
+    if (!studentId || !grade) {
+        alert("Please fill out your Student ID and Grade before continuing.");
         return;
     }
 

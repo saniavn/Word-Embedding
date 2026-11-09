@@ -10,6 +10,7 @@ import uuid
 import json
 from flask import send_file, after_this_request
 from datetime import datetime
+import threading
 import numpy as np
 from collections import defaultdict
 from sklearn.manifold import TSNE
@@ -75,6 +76,47 @@ conversation_history = []
 
 GENSIM_MODELS = {'word2vec-google-news-300', 'glove-wiki-gigaword-100'}
 
+# Lock so two requests from the same student can't write their file at the same time
+_log_lock = threading.Lock()
+
+
+def log_event(user_id, event):
+    """Append one event (dict) to the student's JSON file in user_data/."""
+    try:
+        safe_user_id = str(uuid.UUID(str(user_id)))  # only accept real IDs (no odd file paths)
+    except (ValueError, TypeError):
+        print(f"log_event: ignoring invalid user_id {user_id!r}")
+        return
+    user_file = os.path.join(USER_DATA_DIR, f"{safe_user_id}.json")
+    record = {"timestamp": datetime.now().isoformat(), **event}
+    with _log_lock:
+        try:
+            if os.path.exists(user_file):
+                with open(user_file, "r") as f:
+                    user_data = json.load(f)
+            else:
+                user_data = {"user_id": safe_user_id, "interactions": []}
+        except json.JSONDecodeError:
+            user_data = {"user_id": safe_user_id, "interactions": []}
+        user_data.setdefault("interactions", []).append(record)
+        try:
+            with open(user_file, "w") as f:
+                json.dump(user_data, f, indent=4)
+        except Exception as e:
+            print(f"Error saving event for {safe_user_id}: {e}")
+
+
+def reduce_to_3d(vectors):
+    """Project word vectors to 3D with PCA.
+    PCA keeps the real distances between words much better than t-SNE when
+    there are only a few words, so similar words stay close on the map."""
+    vectors = np.asarray(vectors, dtype=float)
+    k = min(3, vectors.shape[0], vectors.shape[1])
+    reduced = PCA(n_components=k).fit_transform(vectors)
+    if k < 3:  # e.g. only 2 words: pad the missing axes with 0
+        reduced = np.hstack([reduced, np.zeros((reduced.shape[0], 3 - k))])
+    return reduced
+
 
 def save_user_interaction(user_id, interaction_type, input_text, model, temperature, temp_slider, p_value, seed,
                           predicted_tokens=None, predicted_probs=None, selected_word=None, selection_method="typed"):
@@ -112,14 +154,16 @@ def save_user_interaction(user_id, interaction_type, input_text, model, temperat
 @app.route("/", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        first_name = request.form["first_name"].strip().capitalize()
-        last_initial = request.form["last_initial"].strip().upper()
+        # first_name = request.form["first_name"].strip().capitalize()
+        # last_initial = request.form["last_initial"].strip().upper()
+        student_id = request.form["student_id"].strip()
         grade = request.form["grade"].strip()
-        q2= request.form.get("q2", "").strip()
+        q1 = request.form.get("q1", "").strip()
         user_id = str(uuid.uuid4())
         user_data = {
-            "user_id": user_id, "first_name": first_name, "last_initial": last_initial,
-            "grade": grade, "q2": q2, "interactions": []
+            "user_id": user_id, "student_id": student_id,
+            "login_time": datetime.now().isoformat(),
+            "grade": grade, "q1": q1, "interactions": []
         }
         user_file = os.path.join(USER_DATA_DIR, f"{user_id}.json")
         with open(user_file, "w") as f:
@@ -201,15 +245,12 @@ def get_embedding():
             words_to_plot = [word for word in input_words if word in model]
             
             if not words_to_plot or len(words_to_plot) < 2:
+                log_event(user_id, {"interaction_type": "map_words", "input_text": text, "model": model_name,
+                                    "view": data.get("dimensions"), "error": "fewer than 2 words in vocabulary"})
                 return jsonify({"error": "Please enter at least 2 words found in the vocabulary."}), 400
             
             vectors_to_plot = np.array([model[w] for w in words_to_plot])
-            
-            perplexity_value = min(30.0, float(len(words_to_plot) - 1)) 
-            if perplexity_value < 1: perplexity_value = 1.0 # Ensure perplexity is at least 1
-            
-            reducer = TSNE(n_components=3, perplexity=perplexity_value, random_state=42, init='pca', learning_rate='auto')
-            reduced_vectors = reducer.fit_transform(vectors_to_plot)
+            reduced_vectors = reduce_to_3d(vectors_to_plot)
         
         else: # It's a Transformer model
             tokenizer = models[model_name]["tokenizer"]
@@ -233,17 +274,15 @@ def get_embedding():
             
             averaged_vectors = np.array([np.mean(np.vstack(vecs), axis=0) for vecs in token_vectors.values()])
             
-            perplexity_value = min(30.0, float(len(words_to_plot) - 1))
-            if perplexity_value < 1: perplexity_value = 1.0 # Ensure perplexity is at least 1
-
-            reducer = TSNE(n_components=3, perplexity=perplexity_value, random_state=42, init='pca', learning_rate='auto')
-            reduced_vectors = reducer.fit_transform(averaged_vectors)
+            reduced_vectors = reduce_to_3d(averaged_vectors)
             
     except Exception as e:
         print(f"Error in /embedding: {e}")
         return jsonify({"error": f"Calculation failed: {str(e)}"}), 500
     
     points = [{"word": word, "x": float(coords[0]), "y": float(coords[1]), "z": float(coords[2])} for word, coords in zip(words_to_plot, reduced_vectors)]
+    log_event(user_id, {"interaction_type": "map_words", "input_text": text, "model": model_name,
+                        "view": data.get("dimensions"), "words_plotted": words_to_plot})
     return jsonify({"points": points})
 
 @app.route("/calculate_analogy", methods=["POST"])
@@ -323,18 +362,34 @@ def calculate_analogy():
             vectors_to_plot = np.vstack([vec_a, vec_b, vec_c, vec_d])
 
         
-        reducer = TSNE(n_components=3, perplexity=3.0, random_state=42, init='pca', learning_rate='auto')
-        reduced_vectors = reducer.fit_transform(vectors_to_plot)
+        reduced_vectors = reduce_to_3d(vectors_to_plot)
 
         points = [{"word": word, "x": float(coords[0]), "y": float(coords[1]), "z": float(coords[2])} for word, coords in zip(words_to_plot, reduced_vectors)]
 
+        log_event(user_id, {"interaction_type": "analogy", "source": data.get("source", "builder"),
+                            "model": model_name, "word_a": word_a_str, "word_b": word_b_str,
+                            "word_c": word_c_str, "result_word": result_word})
         return jsonify({"result_word": result_word, "points": points})
 
     except KeyError as e:
+        log_event(user_id, {"interaction_type": "analogy", "source": data.get("source", "builder"),
+                            "model": model_name, "word_a": word_a_str, "word_b": word_b_str,
+                            "word_c": word_c_str, "error": f"word not in vocabulary: {e}"})
         return jsonify({"error": f"A word was not in the vocabulary: {e}"}), 400
     except Exception as e:
         print(f"Error in /calculate_analogy: {e}")
         return jsonify({"error": f"Calculation failed: {e}"}), 500
+
+
+@app.route('/log_event', methods=['POST'])
+def log_event_route():
+    """Generic logger for things that happen only in the browser (quiz answers, button clicks)."""
+    data = request.get_json(silent=True) or {}
+    user_id = data.pop("user_id", None)
+    if not user_id:
+        return jsonify({"status": "error", "message": "missing user_id"}), 400
+    log_event(user_id, data)
+    return jsonify({"status": "success"})
 
 
 @app.route('/download_user_data/<user_id>')

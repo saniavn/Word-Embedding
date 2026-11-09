@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>How AI Thinks: Word Embeddings</title>
+    <title>Word Embedding Lab</title>
     <script src="https://cdn.plot.ly/plotly-2.12.1.min.js"></script>
     <style>
         body {
@@ -179,11 +179,22 @@
         const userId = urlParams.get('user_id');
         if (userId) localStorage.setItem("user_id", userId);
         let currentViewMode = 3;
+
+        // Send a browser-side event (quiz answers, clicks) to the server log
+        function logEvent(interactionType, details = {}) {
+            const currentUserId = localStorage.getItem("user_id");
+            if (!currentUserId) return;
+            fetch("/log_event", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ user_id: currentUserId, interaction_type: interactionType, ...details })
+            }).catch(err => console.error("logEvent failed:", err));
+        }
         function goBack() { window.location.href = `/home?user_id=${localStorage.getItem("user_id") || ''}`; }
         function setViewMode(dimensions) {
             currentViewMode = dimensions;
-            document.getElementById('btn3D').classList.toggle('active', dimensions === 3);
-            document.getElementById('btn2D').classList.toggle('active', dimensions === 2);
+            logEvent("view_mode", { view: dimensions });
+            document.getElementById('btn3D')?.classList.toggle('active', dimensions === 3);
+            document.getElementById('btn2D')?.classList.toggle('active', dimensions === 2);
             fetchEmbedding();
         }
 
@@ -192,6 +203,8 @@
                   if (!userId) {
                       return window.location.href = "/";
                   }
+
+                  logEvent("logout");
 
                   // 1) trigger file download
                   const link = document.createElement("a");
@@ -260,15 +273,50 @@
                 trace = {
                     x: points.map(p => p.x), y: points.map(p => p.y), z: points.map(p => p.z),
                     mode: "markers+text", type: "scatter3d", text: points.map(p => p.word),
-                    textposition: "top center", marker: { size: 6, opacity: 0.8 }, textfont: { size: 12 }
+                    textposition: "top center", marker: { size: 6, opacity: 0.8 }, textfont: { size: 12 },
+                    hoverinfo: "text", showlegend: false
                 };
                 layout = {
                     margin: { l: 0, r: 0, b: 0, t: 40 },
                     title: { text: titleText, font: { size: 14 } },
                     scene: { camera: { eye: { x: 1.5, y: 1.5, z: 1.5 } }, aspectmode: 'cube' },
+                    showlegend: false
                 };
             }
-            Plotly.newPlot("embeddingChartBox", [trace], layout);
+
+            const traces = [trace];
+
+            // Analogy view: highlight the answer word and draw the two matching arrows
+            if (analogyWords) {
+                const resultWord = analogyWords.d.toLowerCase();
+                const colors = points.map(p => p.word.toLowerCase() === resultWord ? '#2ca02c' : '#1f77b4');
+                const sizes  = points.map(p => p.word.toLowerCase() === resultWord ? (currentViewMode === 3 ? 11 : 16) : (currentViewMode === 3 ? 7 : 10));
+                trace.marker = { ...trace.marker, color: colors, size: sizes };
+
+                if (currentViewMode === 3) {
+                    const find = w => points.find(p => p.word.toLowerCase() === w.toLowerCase());
+                    const A = find(analogyWords.a), B = find(analogyWords.b), C = find(analogyWords.c), D = find(analogyWords.d);
+                    if (A && B && C && D) {
+                        const arrow3D = (from, to, color) => [
+                            {   // the line
+                                type: "scatter3d", mode: "lines",
+                                x: [from.x, to.x], y: [from.y, to.y], z: [from.z, to.z],
+                                line: { color: color, width: 6 }, hoverinfo: "none", showlegend: false
+                            },
+                            {   // the arrowhead, placed at the end of the line
+                                type: "cone", anchor: "tip", sizemode: "absolute", sizeref: 0.25,
+                                x: [to.x], y: [to.y], z: [to.z],
+                                u: [to.x - from.x], v: [to.y - from.y], w: [to.z - from.z],
+                                colorscale: [[0, color], [1, color]], showscale: false, hoverinfo: "none"
+                            }
+                        ];
+                        // man -> king  and  woman -> queen (same "direction" in word space)
+                        traces.push(...arrow3D(B, A, '#d62728'));
+                        traces.push(...arrow3D(C, D, '#ff7f0e'));
+                    }
+                }
+            }
+            Plotly.newPlot("embeddingChartBox", traces, layout);
         }
 
 
@@ -302,7 +350,7 @@
             resultDisplay.textContent = "🤔";
             const response = await fetch("/calculate_analogy", {
                 method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ model: document.getElementById("embeddingModelSelect").value, word_a: wordA, word_b: wordB, word_c: wordC, user_id: currentUserId, dimensions: currentViewMode })
+                body: JSON.stringify({ model: document.getElementById("embeddingModelSelect").value, word_a: wordA, word_b: wordB, word_c: wordC, user_id: currentUserId, dimensions: currentViewMode, source: "builder" })
             });
             const data = await response.json();
             if (!response.ok || data.error) {
@@ -358,6 +406,14 @@
                 else if (btn.textContent.toLowerCase() === selectedOption.toLowerCase()) { btn.classList.add('incorrect'); }
             });
 
+            logEvent("quiz_answer", {
+                question_number: currentQuestionIndex + 1,
+                question: `${question.a} - ${question.b} + ${question.c}`,
+                selected: selectedOption,
+                correct_answer: correctAnswer,
+                is_correct: selectedOption.toLowerCase() === correctAnswer.toLowerCase()
+            });
+
             // Update feedback text
             if (selectedOption.toLowerCase() === correctAnswer.toLowerCase()) {
                 feedbackEl.textContent = 'Correct!';
@@ -371,7 +427,7 @@
             const currentUserId = localStorage.getItem("user_id");
             const response = await fetch("/calculate_analogy", {
                 method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ model: document.getElementById("embeddingModelSelect").value, word_a: question.a, word_b: question.b, word_c: question.c, user_id: currentUserId, dimensions: currentViewMode })
+                body: JSON.stringify({ model: document.getElementById("embeddingModelSelect").value, word_a: question.a, word_b: question.b, word_c: question.c, user_id: currentUserId, dimensions: currentViewMode, source: "quiz" })
             });
             const data = await response.json();
             if (response.ok) {
@@ -383,6 +439,7 @@
 
         function nextQuizQuestion() {
             currentQuestionIndex = (currentQuestionIndex + 1) % analogyQuizQuestions.length;
+            logEvent("quiz_next", { question_number: currentQuestionIndex + 1 });
             loadQuizQuestion();
             const question = analogyQuizQuestions[currentQuestionIndex];
             document.getElementById('embeddingWordInput').value = `${question.a} ${question.b} ${question.c} ${question.answer}`;
